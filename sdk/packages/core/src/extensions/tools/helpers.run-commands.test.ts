@@ -18,6 +18,29 @@ describe("normalizeRunCommandsInput", () => {
 		).toEqual([{ command: "git", args: ["status"] }]);
 	});
 
+	it("parses a command list sent as a JSON-encoded string", () => {
+		expect(normalizeRunCommandsInput({ commands: '["dir"]' })).toEqual(["dir"]);
+		expect(
+			normalizeRunCommandsInput({ commands: '["echo a", "echo b"]' }),
+		).toEqual(["echo a", "echo b"]);
+		expect(normalizeRunCommandsInput('  ["dir"]')).toEqual(["dir"]);
+		expect(
+			normalizeRunCommandsInput({
+				commands: '[{"command":"git","args":["status"]}]',
+			}),
+		).toEqual([{ command: "git", args: ["status"] }]);
+	});
+
+	it.each([
+		{ label: "a PowerShell type literal", command: '[int]"42" + 1' },
+		{ label: "a bracketed word", command: "[test] value" },
+		{ label: "a JSON list of numbers", command: "[1, 2]" },
+		{ label: "an unterminated list", command: '["dir"' },
+	])("leaves $label as a single command", ({ command }) => {
+		expect(normalizeRunCommandsInput({ commands: command })).toEqual([command]);
+		expect(normalizeRunCommandsInput(command)).toEqual([command]);
+	});
+
 	it.each([
 		{ label: "an object with an empty commands list", input: { commands: [] } },
 		{ label: "a bare empty list", input: [] },

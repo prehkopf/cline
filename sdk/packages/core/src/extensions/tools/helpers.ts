@@ -148,11 +148,53 @@ export function coalesceOrphanReadRanges(input: unknown): unknown {
 	return input;
 }
 
+/**
+ * Some models send the command list as a JSON-encoded string, e.g.
+ * `{"commands": "[\"dir\"]"}`. Without this the whole string runs as a single
+ * command and fails in the shell (PowerShell: "Missing type name after '['").
+ * Only a string that parses to a list of strings or objects is replaced, so a
+ * real command such as `[int]"42" + 1` is left alone. The parsed entries are
+ * still validated by the schema afterwards.
+ */
+function parseStringifiedCommandList(value: unknown): unknown {
+	if (typeof value !== "string" || !value.trimStart().startsWith("[")) {
+		return value;
+	}
+	let parsed: unknown;
+	try {
+		parsed = JSON.parse(value);
+	} catch {
+		return value;
+	}
+	const isCommandList =
+		Array.isArray(parsed) &&
+		parsed.every(
+			(entry) =>
+				typeof entry === "string" ||
+				(entry !== null && typeof entry === "object"),
+		);
+	return isCommandList ? parsed : value;
+}
+
+function parseStringifiedRunCommandsInput(input: unknown): unknown {
+	if (typeof input === "string") {
+		return parseStringifiedCommandList(input);
+	}
+	if (input !== null && typeof input === "object" && "commands" in input) {
+		const commands = parseStringifiedCommandList(input.commands);
+		return commands === input.commands ? input : { ...input, commands };
+	}
+	return input;
+}
+
 export function normalizeRunCommandsInput(
 	input: unknown,
 ): Array<string | StructuredCommandInput> {
 	const commands = collectRunCommands(
-		validateWithZod(RunCommandsInputUnionSchema, input),
+		validateWithZod(
+			RunCommandsInputUnionSchema,
+			parseStringifiedRunCommandsInput(input),
+		),
 	);
 	// An empty list is well-formed but never a real request: nothing would
 	// run and the call would still report success. Fail it so the model sees
