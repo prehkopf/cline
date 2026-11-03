@@ -31,6 +31,7 @@ import {
 	getEditorSizeError,
 	getReadFileRangeError,
 	normalizeRunCommandsInput,
+	parseStringifiedReadFilesInput,
 	stripAnsi,
 	TimeoutError,
 	withTimeout,
@@ -293,7 +294,7 @@ export function createReadFilesTool(
 		execute: async (input, context) => {
 			const validate = validateWithZod(
 				ReadFilesInputUnionSchema,
-				coalesceOrphanReadRanges(input),
+				coalesceOrphanReadRanges(parseStringifiedReadFilesInput(input)),
 			);
 			let requests: ReadFileRequest[];
 			if (typeof validate === "string") {

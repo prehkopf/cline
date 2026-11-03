@@ -148,6 +148,127 @@ export function coalesceOrphanReadRanges(input: unknown): unknown {
 	return input;
 }
 
+const READ_REQUEST_PATH_KEYS = ["path", "file_path", "filePath"] as const;
+
+function isReadRequestObject(value: unknown): boolean {
+	return (
+		value !== null &&
+		typeof value === "object" &&
+		!Array.isArray(value) &&
+		READ_REQUEST_PATH_KEYS.some(
+			(key) => typeof (value as Record<string, unknown>)[key] === "string",
+		)
+	);
+}
+
+function tryJsonParse(text: string): unknown {
+	try {
+		return JSON.parse(text);
+	} catch {
+		return undefined;
+	}
+}
+
+// biome-ignore lint/suspicious/noControlCharactersInRegex: detecting decoded \t, \n, \b etc.
+const CONTROL_CHARS = /[\u0000-\u001f]/;
+
+function containsControlChars(value: unknown): boolean {
+	if (typeof value === "string") {
+		return CONTROL_CHARS.test(value);
+	}
+	if (value !== null && typeof value === "object") {
+		return Object.values(value).some(containsControlChars);
+	}
+	return false;
+}
+
+/**
+ * Parse JSON that may hold unescaped Windows paths. A model often writes
+ * `{"path":"C:\Users\a.txt"}` inside the string: `\U` is not a JSON escape,
+ * so the parse fails, and `C:\temp\new.txt` parses but decodes `\t`/`\n` into
+ * a tab and a newline. In either case retry with every backslash taken
+ * literally. Returns undefined when neither reading is valid JSON.
+ */
+function parseJsonWithWindowsPaths(text: string): unknown {
+	const parsed = tryJsonParse(text);
+	if (parsed !== undefined && !containsControlChars(parsed)) {
+		return parsed;
+	}
+	if (text.includes("\\")) {
+		const literal = tryJsonParse(text.replace(/\\/g, "\\\\"));
+		if (literal !== undefined) {
+			return literal;
+		}
+	}
+	return parsed;
+}
+
+/**
+ * Some models send the read list as a JSON-encoded string, e.g.
+ * `{"files": "[{\"path\":\"C:/a.txt\"}]"}`. Without this the whole string is
+ * taken as one relative path and resolved against the workspace root. Only a
+ * string that parses to a list of paths/read requests, or to one read request,
+ * is replaced, so a real file named `[draft].txt` is left alone. The parsed
+ * value is still validated by the schema afterwards.
+ */
+function parseStringifiedReadList(value: unknown): unknown {
+	if (typeof value !== "string") {
+		return value;
+	}
+	const trimmed = value.trim();
+	if (!trimmed.startsWith("[") && !trimmed.startsWith("{")) {
+		return value;
+	}
+	const parsed = parseJsonWithWindowsPaths(trimmed);
+	if (parsed === undefined) {
+		return value;
+	}
+	if (Array.isArray(parsed)) {
+		const isReadList =
+			parsed.length > 0 &&
+			parsed.every(
+				(entry) =>
+					typeof entry === "string" ||
+					(entry !== null && typeof entry === "object"),
+			);
+		return isReadList ? parsed : value;
+	}
+	return isReadRequestObject(parsed) ? parsed : value;
+}
+
+const READ_LIST_KEYS = ["files", "paths", "file_paths"] as const;
+
+export function parseStringifiedReadFilesInput(input: unknown): unknown {
+	if (typeof input === "string") {
+		const parsed = parseStringifiedReadList(input);
+		// A whole input sent as a JSON object, e.g. '{"files":[...]}'.
+		if (parsed === input && input.trim().startsWith("{")) {
+			const object = parseJsonWithWindowsPaths(input.trim());
+			if (
+				object !== null &&
+				typeof object === "object" &&
+				!Array.isArray(object) &&
+				READ_LIST_KEYS.some((key) => key in object)
+			) {
+				return parseStringifiedReadFilesInput(object);
+			}
+		}
+		return parsed;
+	}
+	if (input !== null && typeof input === "object" && !Array.isArray(input)) {
+		const record = input as Record<string, unknown>;
+		for (const key of READ_LIST_KEYS) {
+			if (key in record) {
+				const parsed = parseStringifiedReadList(record[key]);
+				if (parsed !== record[key]) {
+					return { ...record, [key]: parsed };
+				}
+			}
+		}
+	}
+	return input;
+}
+
 /**
  * Some models send the command list as a JSON-encoded string, e.g.
  * `{"commands": "[\"dir\"]"}`. Without this the whole string runs as a single
