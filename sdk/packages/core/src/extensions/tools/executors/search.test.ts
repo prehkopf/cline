@@ -46,6 +46,46 @@ describe("createSearchExecutor", () => {
 		}
 	});
 
+	it("finds config, Windows script and .NET files in the fallback scan", async () => {
+		const dir = await fs.mkdtemp(path.join(os.tmpdir(), "agents-search-"));
+		const files = [
+			"settings.ini",
+			"app.cfg",
+			"nginx.conf",
+			"web.config",
+			"layout.xml",
+			"data.csv",
+			"run.log",
+			"build.bat",
+			"setup.cmd",
+			"Tools.psm1",
+			"Tools.psd1",
+			"Program.cs",
+			"App.csproj",
+			"main.tf",
+		];
+
+		try {
+			await Promise.all(
+				files.map((file) =>
+					fs.writeFile(path.join(dir, file), "QA_MARKER_42", "utf-8"),
+				),
+			);
+			// Lookahead is unsupported by ripgrep, forcing the fallback scan.
+			const result = await createSearchExecutor()(
+				"(?=QA_MARKER_42)QA_MARKER_42",
+				dir,
+				ctx,
+			);
+			expect(result).toContain(`Found ${files.length} results for pattern`);
+			for (const file of files) {
+				expect(result).toContain(`${file}:1:1`);
+			}
+		} finally {
+			await fs.rm(dir, { recursive: true, force: true });
+		}
+	});
+
 	it("excludes the Composer vendor directory from the fallback scan", async () => {
 		const dir = await fs.mkdtemp(path.join(os.tmpdir(), "agents-search-"));
 		try {
