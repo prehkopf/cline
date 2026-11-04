@@ -904,6 +904,31 @@ describe("translateSessionEvent — agent_event content_end", () => {
 		expect(second.path).toBe("/src/package.json")
 	})
 
+	it.each([
+		{ label: "files as a JSON-encoded object list", input: { files: '[{"path":"C:\\\\a.txt"},{"path":"C:\\\\b.txt"}]' } },
+		{ label: "files with raw Windows backslashes", input: { files: String.raw`["C:\a.txt", "C:\b.txt"]` } },
+		{ label: "paths key", input: { paths: '["C:/a.txt","C:/b.txt"]' } },
+	])("content_end for read_files shows the real paths for $label", ({ input }) => {
+		const state = new MessageTranslatorState()
+		const event = (type: "content_start" | "content_end", extra: Record<string, unknown>) =>
+			translateSessionEvent(
+				{
+					type: "agent_event",
+					payload: {
+						sessionId: "s1",
+						event: { type, contentType: "tool", toolName: "read_files", toolCallId: "c1", ...extra } as AgentEvent,
+					},
+				},
+				state,
+			)
+
+		event("content_start", { input })
+		const endResult = event("content_end", {})
+
+		const paths = endResult.messages.map((message) => JSON.parse(message.text!).path.replace(/\//g, "\\"))
+		expect(paths).toEqual(["C:\\a.txt", "C:\\b.txt"])
+	})
+
 	it("content_end for read_files carries the requested line range into the readFile payload", () => {
 		const state = new MessageTranslatorState()
 

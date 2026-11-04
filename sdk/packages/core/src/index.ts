@@ -1033,6 +1033,7 @@ export {
 	PATCH_MARKERS,
 	PatchActionType,
 	type PatchFileChange,
+	parseStringifiedReadFilesInput,
 	resolveCoreSelectedToolIds,
 	resolveToolClientType,
 	type ShellExecutor,

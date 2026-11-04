@@ -27,7 +27,13 @@
 // - SDK "ended" event → finalizes the session
 
 import type { CoreSessionEvent } from "@cline/core"
-import { PATCH_MARKERS, projectSessionMessagesForDisplay, resolveMessageDisplayRole, truncateCommandOutput } from "@cline/core"
+import {
+	PATCH_MARKERS,
+	parseStringifiedReadFilesInput,
+	projectSessionMessagesForDisplay,
+	resolveMessageDisplayRole,
+	truncateCommandOutput,
+} from "@cline/core"
 import type { MessageWithMetadata as SdkMessage } from "@cline/llms"
 import { type AgentEvent, formatDisplayUserInput, type ProviderErrorClass } from "@cline/shared"
 import { COMMAND_OUTPUT_STRING } from "@shared/combineCommandSequences"
@@ -921,17 +927,23 @@ interface FileReadRequest {
 }
 
 /** Extract file read requests (path + optional one-based inclusive line range) from a read_files/read_file input */
-function extractFileReads(input: Record<string, unknown> | undefined): FileReadRequest[] {
-	if (!input) return []
-	const files = input.files
-	if (Array.isArray(files) && files.length > 0) {
+function extractFileReads(rawInput: Record<string, unknown> | undefined): FileReadRequest[] {
+	if (!rawInput) return []
+	// Some models send the file list as a JSON-encoded string; parse it the same way the tool does.
+	const parsed = parseStringifiedReadFilesInput(rawInput)
+	const input = (
+		Array.isArray(parsed) ? { files: parsed } : typeof parsed === "object" && parsed !== null ? parsed : rawInput
+	) as Record<string, unknown>
+	const listValue = input.files ?? input.paths ?? input.file_paths
+	const files = Array.isArray(listValue) ? listValue : typeof listValue === "object" && listValue !== null ? [listValue] : []
+	if (files.length > 0) {
 		const reads = files
 			.map((f): FileReadRequest => {
 				if (typeof f === "string") return { path: f }
 				if (typeof f === "object" && f !== null) {
 					const entry = f as Record<string, unknown>
 					return {
-						path: (entry.path as string) ?? "",
+						path: (entry.path as string) ?? (entry.file_path as string) ?? "",
 						startLine: getNumberField(entry, "start_line"),
 						endLine: getNumberField(entry, "end_line"),
 					}

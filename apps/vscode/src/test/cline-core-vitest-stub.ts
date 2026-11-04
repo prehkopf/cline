@@ -17,6 +17,7 @@ export {
 	MAX_COMMAND_OUTPUT_CHARS,
 	truncateCommandOutput,
 } from "../../../../sdk/packages/core/src/extensions/tools/executors/output-limits"
+export { parseStringifiedReadFilesInput } from "../../../../sdk/packages/core/src/extensions/tools/helpers"
 
 export interface StoredModelEntry {
 	id?: string

@@ -57,6 +57,7 @@ export {
 	MAX_COMMAND_OUTPUT_CHARS,
 	truncateCommandOutput,
 } from "./executors/output-limits";
+export { parseStringifiedReadFilesInput } from "./helpers";
 export {
 	DEFAULT_MODEL_TOOL_ROUTING_RULES,
 	resolveToolRoutingConfig,
