@@ -63,6 +63,18 @@ describe("read_files with a JSON-encoded file list", () => {
 			expected: String.raw`\\nas\share\c.txt`,
 		},
 		{
+			label: "mixed escaped and raw backslashes",
+			input: {
+				files: String.raw`[{"path":"C:\\Users\Patrick\cline-qa\README.md"}]`,
+			},
+			expected: String.raw`C:\\Users\Patrick\cline-qa\README.md`,
+		},
+		{
+			label: "one stray quote before the closing bracket",
+			input: { files: String.raw`["C:\Users\a.txt""]` },
+			expected: String.raw`C:\Users\a.txt`,
+		},
+		{
 			label: "raw UNC path",
 			input: { files: String.raw`["\\nas\share\c.txt"]` },
 			expected: String.raw`\\nas\share\c.txt`,

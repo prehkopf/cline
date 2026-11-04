@@ -190,6 +190,18 @@ function containsControlChars(value: unknown): boolean {
  * literally. Returns undefined when neither reading is valid JSON.
  */
 function parseJsonWithWindowsPaths(text: string): unknown {
+	const parsed = parseJsonWithWindowsPathsOnce(text);
+	if (parsed !== undefined) {
+		return parsed;
+	}
+	// One quote too many before the closing bracket, e.g. `["C:/a.txt""]`.
+	const withoutStrayQuote = text.replace(/""(\s*[\]}])\s*$/, '"$1');
+	return withoutStrayQuote === text
+		? undefined
+		: parseJsonWithWindowsPathsOnce(withoutStrayQuote);
+}
+
+function parseJsonWithWindowsPathsOnce(text: string): unknown {
 	const parsed = tryJsonParse(text);
 	if (parsed !== undefined && !containsControlChars(parsed)) {
 		return parsed;
@@ -281,20 +293,64 @@ function parseStringifiedCommandList(value: unknown): unknown {
 	if (typeof value !== "string" || !value.trimStart().startsWith("[")) {
 		return value;
 	}
-	let parsed: unknown;
-	try {
-		parsed = JSON.parse(value);
-	} catch {
-		return value;
+	for (const candidate of lenientJsonCandidates(value.trim())) {
+		const parsed = tryJsonParse(candidate);
+		const isCommandList =
+			Array.isArray(parsed) &&
+			parsed.every(
+				(entry) =>
+					typeof entry === "string" ||
+					(entry !== null && typeof entry === "object"),
+			);
+		if (isCommandList) {
+			return parsed;
+		}
 	}
-	const isCommandList =
-		Array.isArray(parsed) &&
-		parsed.every(
-			(entry) =>
-				typeof entry === "string" ||
-				(entry !== null && typeof entry === "object"),
+	return value;
+}
+
+// A valid JSON escape, or any other backslash (group 1 = the next character).
+const JSON_ESCAPE_OR_STRAY_BACKSLASH =
+	/\\(?:["\\/bfnrt]|u[0-9a-fA-F]{4})|\\(.?)/g;
+// Characters a model escapes for a shell, not for JSON: `\$x` means `$x`.
+const SHELL_ESCAPED_PUNCTUATION = new Set("$`'@{}()!&|;<>*?%^=,[]");
+
+/**
+ * Repair the backslashes of a JSON string that failed to parse. Valid JSON
+ * escapes keep their meaning. A backslash before shell punctuation was an
+ * over-escape for a shell (`\$_` → `$_`) and is dropped. Any other backslash
+ * is taken literally, which keeps Windows paths such as `c:\Users\app`.
+ */
+function repairStrayBackslashes(text: string): string {
+	return text.replace(
+		JSON_ESCAPE_OR_STRAY_BACKSLASH,
+		(match, next: string | undefined) => {
+			if (next === undefined) {
+				return match;
+			}
+			if (SHELL_ESCAPED_PUNCTUATION.has(next)) {
+				return next;
+			}
+			return `\\\\${next}`;
+		},
+	);
+}
+
+/**
+ * The texts to try, in order, for a JSON list a model sent as a string:
+ * as sent; with stray backslashes repaired; and, when the list ends in
+ * `""]` (one quote too many), the same two without the extra quote.
+ */
+function lenientJsonCandidates(text: string): string[] {
+	const candidates = [text, repairStrayBackslashes(text)];
+	const withoutStrayQuote = text.replace(/""(\s*\])\s*$/, '"$1');
+	if (withoutStrayQuote !== text) {
+		candidates.push(
+			withoutStrayQuote,
+			repairStrayBackslashes(withoutStrayQuote),
 		);
-	return isCommandList ? parsed : value;
+	}
+	return candidates;
 }
 
 function parseStringifiedRunCommandsInput(input: unknown): unknown {
